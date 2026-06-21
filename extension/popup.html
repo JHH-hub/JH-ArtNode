@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #111114; --surface: #1a1a1f; --surface2: #222228;
+      --border: #2e2e38; --accent: #7c6ef5; --text: #e8e8f0;
+      --muted: #7878a0; --success: #4ade80;
+    }
+    body {
+      width: 360px; background: var(--bg); color: var(--text);
+      font-family: 'Inter','PingFang SC',sans-serif; padding: 14px;
+    }
+    h1 { font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
+    h1 .badge { font-size: 10px; padding: 1px 7px; background: var(--accent); color: #fff; border-radius: 99px; }
+    .section { margin-bottom: 12px; }
+    label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
+    input[type=text], input[type=password] {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; padding: 6px 9px; color: var(--text); font-size: 12px;
+    }
+    input:focus { outline: 1px solid var(--accent); }
+    .row { display: flex; gap: 7px; }
+    button {
+      flex: 1; padding: 7px; border: none; border-radius: 7px; cursor: pointer;
+      font-size: 12px; font-weight: 600; transition: opacity .15s;
+    }
+    button:hover { opacity: .85; }
+    .btn-accent { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-open { width: 100%; background: linear-gradient(135deg,#2563eb,#7c3aed); color: #fff; padding: 9px; font-size: 13px; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 10px; font-weight: 600; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px; margin-bottom: 8px;
+    }
+    .card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; font-weight: 600; }
+    .tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; }
+    .tag-c { background: #1d3a5f; color: #60a5fa; }
+    .tag-s { background: #2d1a47; color: #c084fc; }
+    .prompt-preview { font-size: 12px; color: var(--muted); line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 60px; overflow: hidden; }
+    .status-ok { color: var(--success); font-size: 11px; }
+    .status-empty { color: var(--muted); font-size: 11px; }
+    textarea {
+      width: 100%; min-height: 72px; resize: vertical;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; padding: 8px; color: var(--text); font-size: 12px; line-height: 1.6;
+    }
+    textarea:focus { outline: 1px solid var(--accent); }
+    #toast { font-size: 11px; color: var(--success); height: 16px; margin-top: 6px; text-align: center; }
+    .sep { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  </style>
+</head>
+<body>
+<h1>🎨 风格迁移 <span class="badge">插件</span></h1>
+
+<button class="btn-open" id="btn-open-web">🖥 打开完整 Web 工具</button>
+
+<div class="section">
+  <label>API 服务地址</label>
+  <input type="text" id="server-url" placeholder="http://localhost:8765" />
+</div>
+
+<hr class="sep" />
+
+<!-- Content / Style 状态 -->
+<div class="card">
+  <div class="card-header">
+    <span class="tag tag-c">CONTENT</span>
+    <span>内容图</span>
+    <span id="c-status" class="status-empty" style="margin-left:auto">未设置</span>
+  </div>
+  <div class="prompt-preview" id="c-preview">右键页面图片 → 「分析为内容图」</div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="tag tag-s">STYLE</span>
+    <span>风格图</span>
+    <span id="s-status" class="status-empty" style="margin-left:auto">未设置</span>
+  </div>
+  <div class="prompt-preview" id="s-preview">右键页面图片 → 「分析为风格图」</div>
+</div>
+
+<div class="row" style="margin-bottom:8px">
+  <button class="btn-accent" id="btn-merge">⚡ 合并提示词</button>
+  <button class="btn-secondary" id="btn-clear">清空</button>
+</div>
+
+<div class="section">
+  <label>合并结果（可编辑）</label>
+  <textarea id="merged-out" placeholder="点击「合并提示词」后显示…"></textarea>
+  <div class="row" style="margin-top:6px">
+    <button class="btn-accent" id="btn-copy">📋 复制</button>
+    <button class="btn-secondary" id="btn-open-full">在 Web 页面打开</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+
+  async function getQueue() {
+    const res = await chrome.storage.local.get("artnode_queue");
+    return res.artnode_queue || {};
+  }
+  async function getServer() {
+    const res = await chrome.storage.local.get("serverUrl");
+    return (res.serverUrl || "http://localhost:8765").replace(/\/$/, "");
+  }
+
+  async function init() {
+    const server = await getServer();
+    $("server-url").value = server;
+    await refreshStatus();
+  }
+
+  async function refreshStatus() {
+    const q = await getQueue();
+    const c = q["content"]; const s = q["style"];
+    if (c?.prompt) {
+      $("c-status").textContent = "✅ 已设置"; $("c-status").className = "status-ok";
+      $("c-preview").textContent = c.prompt.slice(0, 80) + (c.prompt.length > 80 ? "…" : "");
+    } else {
+      $("c-status").textContent = "未设置"; $("c-status").className = "status-empty";
+      $("c-preview").textContent = "右键页面图片 → 「分析为内容图」";
+    }
+    if (s?.prompt) {
+      $("s-status").textContent = "✅ 已设置"; $("s-status").className = "status-ok";
+      $("s-preview").textContent = s.prompt.slice(0, 80) + (s.prompt.length > 80 ? "…" : "");
+    } else {
+      $("s-status").textContent = "未设置"; $("s-status").className = "status-empty";
+      $("s-preview").textContent = "右键页面图片 → 「分析为风格图」";
+    }
+  }
+
+  $("server-url").addEventListener("change", async () => {
+    const v = $("server-url").value.trim();
+    await chrome.storage.local.set({ serverUrl: v });
+    toast("服务地址已保存");
+  });
+
+  $("btn-open-web").onclick = async () => {
+    const s = await getServer();
+    chrome.tabs.create({ url: s });
+  };
+
+  $("btn-merge").onclick = async () => {
+    const q = await getQueue();
+    const cp = q["content"]?.prompt || "";
+    const sp = q["style"]?.prompt || "";
+    if (!cp || !sp) { toast("❌ 需先设置两图"); return; }
+
+    // 先尝试服务端
+    try {
+      const server = await getServer();
+      const fd = new FormData();
+      fd.append("content_prompt", cp); fd.append("style_prompt", sp); fd.append("lang", "zh");
+      const resp = await fetch(`${server}/merge`, { method: "POST", body: fd });
+      if (!resp.ok) throw new Error();
+      const data = await resp.json();
+      $("merged-out").value = data.merged_prompt;
+    } catch {
+      // 本地合并兜底
+      const merged = `${cp.replace(/[。.]+$/, "")}，呈现为以下风格：${sp.replace(/[。.]+$/, "")}。保留参考原图的构图、主体身份、相机角度与空间布局；仅应用参考风格图的美术风格、配色、光影与质感。不要改变画面中出现的物体——只改变它们的呈现方式。`;
+      $("merged-out").value = merged;
+    }
+    toast("✅ 合并完成");
+  };
+
+  $("btn-copy").onclick = async () => {
+    const v = $("merged-out").value;
+    if (!v) { toast("❌ 没有内容"); return; }
+    await navigator.clipboard.writeText(v);
+    toast("📋 已复制");
+  };
+
+  $("btn-clear").onclick = async () => {
+    await chrome.storage.local.set({ artnode_queue: {} });
+    $("merged-out").value = "";
+    await refreshStatus();
+    toast("已清空");
+  };
+
+  $("btn-open-full").onclick = async () => {
+    const server = await getServer();
+    const q = await getQueue();
+    const cp = q["content"]?.prompt || ""; const sp = q["style"]?.prompt || "";
+    const params = new URLSearchParams({ cp, sp });
+    chrome.tabs.create({ url: `${server}?${params}` });
+  };
+
+  let _t;
+  function toast(msg) {
+    $("toast").textContent = msg;
+    clearTimeout(_t);
+    _t = setTimeout(() => ($("toast").textContent = ""), 2500);
+  }
+
+  // 定时刷新状态（分析可能在后台完成）
+  init();
+  setInterval(refreshStatus, 2000);
+
+  // storage 变化时也刷新
+  chrome.storage.onChanged.addListener(refreshStatus);
+</script>
+</body>
+</html>

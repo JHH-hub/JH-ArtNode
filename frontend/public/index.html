@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArtNode · 美术工作流节点工具</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0e12;
+      --surface: #17171d;
+      --surface2: #1e1e26;
+      --surface3: #252530;
+      --border: #2a2a38;
+      --accent: #7c6ef5;
+      --accent2: #a78bfa;
+      --node-c: #2563eb;
+      --node-s: #9333ea;
+      --node-m: #0d9488;
+      --node-r: #d97706;
+      --text: #e8e8f0;
+      --muted: #6e6e90;
+      --success: #4ade80;
+      --warn: #facc15;
+      --err: #f87171;
+      --radius: 10px;
+      --font: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── header ── */
+    header {
+      padding: 14px 28px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+    }
+    header h1 { font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+    header .sub { font-size: 11px; color: var(--muted); }
+    .badge { font-size: 10px; padding: 2px 7px; border-radius: 99px; background: var(--accent); color: #fff; font-weight: 600; }
+
+    /* ── api bar ── */
+    #api-bar {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 8px 28px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    #api-bar label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    #api-bar input {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 9px; color: var(--text); font-size: 11px;
+    }
+    #api-bar input:focus { outline: 1px solid var(--accent); }
+    #api-bar .save-key { padding: 4px 12px; border-radius: 5px; border: none; background: var(--accent); color: #fff; cursor: pointer; font-size: 11px; }
+
+    /* ════════════════════════════════
+       PIPELINE BAR — 决策节点可视化
+       ════════════════════════════════ */
+    #pipeline {
+      padding: 16px 28px 0;
+    }
+    #pipeline .pipeline-title {
+      font-size: 10px; font-weight: 700; letter-spacing: .1em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 10px;
+    }
+    .pipeline-track {
+      display: flex; align-items: center; gap: 0;
+      overflow-x: auto; padding-bottom: 4px;
+    }
+    .pnode {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      min-width: 90px; position: relative;
+    }
+    .pnode-dot {
+      width: 32px; height: 32px; border-radius: 50%;
+      border: 2px solid var(--border);
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; transition: all .3s;
+      position: relative; z-index: 1;
+    }
+    .pnode-label { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.3; white-space: nowrap; }
+    .pnode-connector {
+      flex: 1; min-width: 24px; height: 2px;
+      background: var(--border); margin-bottom: 16px;
+      transition: background .4s;
+    }
+
+    /* 节点状态 */
+    .pnode.idle .pnode-dot     { border-color: var(--border); }
+    .pnode.active .pnode-dot   { border-color: var(--accent); background: #1e1b30; box-shadow: 0 0 10px rgba(124,110,245,.4); }
+    .pnode.done .pnode-dot     { border-color: var(--success); background: #0e2318; }
+    .pnode.done .pnode-label   { color: var(--success); }
+    .pnode[data-type=content].active .pnode-dot  { border-color: var(--node-c); box-shadow: 0 0 10px rgba(37,99,235,.4); }
+    .pnode[data-type=content].done .pnode-dot    { border-color: var(--node-c); background: #0f1e3b; }
+    .pnode[data-type=content].done .pnode-label  { color: #60a5fa; }
+    .pnode[data-type=style].active .pnode-dot    { border-color: var(--node-s); box-shadow: 0 0 10px rgba(147,51,234,.4); }
+    .pnode[data-type=style].done .pnode-dot      { border-color: var(--node-s); background: #200e3b; }
+    .pnode[data-type=style].done .pnode-label    { color: #c084fc; }
+    .pnode[data-type=merge].done .pnode-dot      { border-color: var(--node-m); background: #0a2320; }
+    .pnode[data-type=merge].done .pnode-label    { color: #2dd4bf; }
+    .pnode[data-type=reverse].active .pnode-dot  { border-color: var(--node-r); box-shadow: 0 0 10px rgba(217,119,6,.4); }
+    .pnode[data-type=reverse].done .pnode-dot    { border-color: var(--node-r); background: #2a1a04; }
+    .pnode[data-type=reverse].done .pnode-label  { color: #fbbf24; }
+    .pnode-connector.lit { background: var(--accent2); }
+    .pnode-connector.lit-c { background: var(--node-c); }
+    .pnode-connector.lit-s { background: var(--node-s); }
+    .pnode-connector.lit-m { background: var(--node-m); }
+
+
+    /* ── panels ── */
+    .panel { display: none; padding: 20px 28px; }
+    .panel.active { display: block; }
+
+    /* ── drop zone ── */
+    .drop-card {
+      background: var(--surface); border: 1.5px dashed var(--border);
+      border-radius: var(--radius); min-height: 180px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px; cursor: pointer; transition: border-color .2s, background .2s;
+      position: relative; overflow: hidden;
+    }
+    .drop-card:hover, .drop-card.dragover { border-color: var(--accent); background: var(--surface2); }
+    .drop-card input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .drop-card img { max-width: 100%; max-height: 150px; border-radius: 7px; object-fit: contain; }
+    .drop-card .placeholder { text-align: center; pointer-events: none; }
+    .drop-card .placeholder .icon { font-size: 30px; margin-bottom: 5px; }
+    .drop-card .placeholder p { color: var(--muted); font-size: 12px; }
+
+    /* ── two-col layout ── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .full-col { grid-column: 1 / -1; }
+
+    /* ── section card ── */
+    .sec-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px;
+    }
+    .sec-card .sec-title {
+      font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+    }
+    .prompt-text {
+      font-size: 13px; line-height: 1.7; color: var(--text);
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .dim-toggle { font-size: 11px; color: var(--accent2); cursor: pointer; margin-top: 6px; display: inline-block; }
+    .dim-text { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.6; white-space: pre-wrap; display: none; }
+    .dim-text.open { display: block; }
+    .empty-hint { color: var(--muted); font-size: 12px; }
+
+    /* ── buttons ── */
+    .btn {
+      padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 12px; font-weight: 600; transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-content  { background: linear-gradient(135deg, #1d4ed8, #7c3aed); color: #fff; }
+    .btn-style    { background: linear-gradient(135deg, #7c3aed, #be185d); color: #fff; }
+    .btn-merge    { background: linear-gradient(135deg, #0f766e, #1d4ed8); color: #fff; }
+    .btn-reverse  { background: linear-gradient(135deg, #b45309, #7c3aed); color: #fff; }
+    .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+    /* ── textarea ── */
+    textarea {
+      width: 100%; resize: vertical;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px; color: var(--text);
+      font-size: 13px; line-height: 1.7; font-family: var(--font);
+    }
+    textarea:focus { outline: 1px solid var(--accent); }
+
+    /* ── spinner ── */
+    .spinner {
+      width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.25);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .7s linear infinite; display: none;
+    }
+    .spinner.active { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── toast ── */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: var(--surface3); border: 1px solid var(--border); color: var(--text);
+      padding: 9px 18px; border-radius: 8px; font-size: 12px;
+      opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 999;
+      white-space: nowrap;
+    }
+    #toast.show { opacity: 1; }
+
+    /* ── clarify panel ── */
+    .field-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .field-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; padding: 7px 10px; color: var(--text); font-size: 13px;
+      font-family: var(--font);
+    }
+    .field-input:focus { outline: 1px solid var(--accent); }
+    .btn-clarify { background: linear-gradient(135deg, #0e7490, #7c3aed); color: #fff; }
+
+    /* ── node color: clarify ── */
+    .pnode[data-type=clarify].active .pnode-dot  { border-color: #0e7490; box-shadow: 0 0 10px rgba(14,116,144,.4); }
+    .pnode[data-type=clarify].done .pnode-dot    { border-color: #0e7490; background: #062830; }
+    .pnode[data-type=clarify].done .pnode-label  { color: #22d3ee; }
+    .pnode-connector.lit-cl { background: #0e7490; }
+
+    /* ── reverse panel specific ── */
+    .gulf-hint {
+      background: linear-gradient(135deg, #2a1a04, #1e1b04);
+      border: 1px solid #b45309; border-radius: 9px;
+      padding: 12px 14px; font-size: 12px; line-height: 1.6; color: #fde68a;
+      margin-bottom: 14px;
+    }
+    .gulf-hint strong { font-size: 13px; display: block; margin-bottom: 4px; }
+
+    /* ── node info tooltip ── */
+    .node-info {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin: 12px 0 0;
+      font-size: 11px; color: var(--muted); line-height: 1.6; display: none;
+    }
+    .node-info.show { display: block; }
+    .node-info .ni-title { font-weight: 700; color: var(--text); margin-bottom: 3px; font-size: 12px; }
+
+    @media (max-width: 640px) {
+      .two-col { grid-template-columns: 1fr; }
+      .full-col { grid-column: 1; }
+      header, #api-bar, #pipeline, #tab-bar, .panel { padding-left: 14px; padding-right: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:18px">🎨</span>
+  <div>
+    <h1>ArtNode <span class="badge">v1.1</span></h1>
+    <div class="sub">小游戏美术 AIGC 工作流节点工具</div>
+  </div>
+</header>
+
+<div id="api-bar">
+  <label>服务地址</label>
+  <input id="server-url" type="text" value="http://localhost:8765" style="width:200px" />
+  <label>Gemini Key（服务端已配置可留空）</label>
+  <input id="api-key-input" type="password" placeholder="AIza..." style="width:200px" />
+  <button class="save-key" onclick="saveSettings()">保存</button>
+</div>
+
+<!-- ════ 决策节点可视化 ════ -->
+<div id="pipeline">
+  <div class="pipeline-title">工作流决策节点</div>
+  <div class="pipeline-track">
+    <div class="pnode idle" id="pn-clarify" data-type="clarify" onclick="switchTab('clarify')">
+      <div class="pnode-dot">💬</div>
+      <div class="pnode-label">意图<br>梳理</div>
+    </div>
+    <div class="pnode-connector" id="conn-0"></div>
+    <div class="pnode idle" id="pn-content" data-type="content" onclick="switchTab('content')">
+      <div class="pnode-dot">🖼</div>
+      <div class="pnode-label">内容<br>解析</div>
+    </div>
+    <div class="pnode-connector" id="conn-1"></div>
+    <div class="pnode idle" id="pn-style" data-type="style" onclick="switchTab('style')">
+      <div class="pnode-dot">🎨</div>
+      <div class="pnode-label">风格<br>解析</div>
+    </div>
+    <div class="pnode-connector" id="conn-2"></div>
+    <div class="pnode idle" id="pn-merge" data-type="merge" onclick="switchTab('merge')">
+      <div class="pnode-dot">⚡</div>
+      <div class="pnode-label">提示词<br>合并</div>
+    </div>
+    <div class="pnode-connector" id="conn-3"></div>
+    <div class="pnode idle" id="pn-reverse" data-type="reverse" onclick="switchTab('reverse')">
+      <div class="pnode-dot">🔍</div>
+      <div class="pnode-label">反向<br>提词</div>
+    </div>
+  </div>
+  <!-- 节点说明 -->
+  <div class="node-info" id="node-info">
+    <div class="ni-title" id="ni-title"></div>
+    <div id="ni-body"></div>
+  </div>
+</div>
+
+
+<!-- ════ Panel: 意图梳理 ════ -->
+<div class="panel active" id="panel-clarify">
+  <div class="two-col">
+    <div class="sec-card full-col" style="margin-bottom:14px">
+      <div class="sec-title">💬 意图梳理
+        <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">
+          · 填写你的创作意图，AI 帮你整理成结构化描述
+        </span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="field-label">🎯 画面主题 / 想画什么</label>
+          <input class="field-input" id="cl-subject" placeholder="例：一个赛博朋克风格的女孩站在雨中" />
+        </div>
+        <div>
+          <label class="field-label">🎨 风格偏好</label>
+          <select class="field-input" id="cl-style">
+            <option value="">不确定 / 让 AI 建议</option>
+            <option value="anime">动漫 / 二次元</option>
+            <option value="realistic">写实 / 摄影感</option>
+            <option value="pixel">像素风</option>
+            <option value="watercolor">水彩 / 手绘</option>
+            <option value="3d">3D 渲染</option>
+            <option value="flat">扁平插画</option>
+            <option value="ink">线稿 / 黑白</option>
+            <option value="oil">油画</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">🌈 画面氛围 / 情绪</label>
+          <input class="field-input" id="cl-mood" placeholder="例：阴郁、温暖、神秘、活泼…" />
+        </div>
+        <div>
+          <label class="field-label">📐 构图 / 视角</label>
+          <select class="field-input" id="cl-composition">
+            <option value="">不指定</option>
+            <option value="close-up">特写</option>
+            <option value="half body">半身</option>
+            <option value="full body">全身</option>
+            <option value="wide shot">广角全景</option>
+            <option value="bird's eye view">俯视</option>
+            <option value="low angle">仰视</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">💡 光线 / 时间</label>
+          <input class="field-input" id="cl-lighting" placeholder="例：黄昏逆光、霓虹灯、正午阳光…" />
+        </div>
+        <div>
+          <label class="field-label">🚫 不想要的元素</label>
+          <input class="field-input" id="cl-negative" placeholder="例：不要文字、不要多余的人…" />
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="field-label">📝 补充说明（可选）</label>
+          <textarea id="cl-extra" style="min-height:56px" placeholder="其他细节、参考说明、特殊要求…"></textarea>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn btn-clarify" id="btn-clarify" onclick="doClarify()">
+          <span class="spinner" id="spin-clarify"></span> AI 整理意图
+        </button>
+        <button class="btn btn-secondary" onclick="clearClarify()">清空</button>
+      </div>
+    </div>
+    <div class="sec-card full-col" id="cl-result-card" style="display:none">
+      <div class="sec-title">✨ 结构化意图描述 <span id="cl-done-badge" style="font-size:10px;color:var(--success)">✓ 已生成</span></div>
+      <div class="prompt-text" id="cl-result-text"></div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="copyClarify()">📋 复制</button>
+        <button class="btn btn-secondary" onclick="useClarifyAsPrompt()">→ 作为内容提示词使用</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Panel: 内容解析 ════ -->
+<div class="panel active" id="panel-content">
+  <div class="two-col">
+    <div>
+      <div class="drop-card" id="content-zone"
+           ondragover="onDragOver(event,'content')" ondragleave="onDragLeave('content')" ondrop="onDrop(event,'content')">
+        <input type="file" accept="image/*" onchange="onFileSelect(event,'content')" />
+        <div class="placeholder" id="content-placeholder">
+          <div class="icon">🖼️</div>
+          <p>拖入或点击上传<strong>内容图</strong></p>
+          <p style="margin-top:4px;font-size:11px">保留构图、主体、视角</p>
+        </div>
+        <img id="content-preview" style="display:none" />
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-content" id="btn-content" onclick="analyze('content')" disabled style="flex:1">
+          <span class="spinner" id="spin-content"></span> 分析内容图
+        </button>
+      </div>
+    </div>
+    <div class="sec-card">
+      <div class="sec-title">🖼 CONTENT PROMPT <span id="c-done-badge" style="display:none;font-size:10px;color:var(--success)">✓ 已完成</span></div>
+      <div class="empty-hint" id="cp-empty">上传图片后点击「分析」</div>
+      <div class="prompt-text" id="cp-text" style="display:none"></div>
+      <span class="dim-toggle" id="cp-dim-toggle" style="display:none" onclick="toggleDim('cp')">▶ 查看维度清单</span>
+      <div class="dim-text" id="cp-dim"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Panel: 风格解析 ════ -->
+<div class="panel" id="panel-style">
+  <div class="two-col">
+    <div>
+      <div class="drop-card" id="style-zone"
+           ondragover="onDragOver(event,'style')" ondragleave="onDragLeave('style')" ondrop="onDrop(event,'style')">
+        <input type="file" accept="image/*" onchange="onFileSelect(event,'style')" />
+        <div class="placeholder" id="style-placeholder">
+          <div class="icon">🎨</div>
+          <p>拖入或点击上传<strong>风格图</strong></p>
+          <p style="margin-top:4px;font-size:11px">提取配色、笔触、媒介、氛围</p>
+        </div>
+        <img id="style-preview" style="display:none" />
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-style" id="btn-style" onclick="analyze('style')" disabled style="flex:1">
+          <span class="spinner" id="spin-style"></span> 分析风格图
+        </button>
+      </div>
+    </div>
+    <div class="sec-card">
+      <div class="sec-title">🎨 STYLE PROMPT <span id="s-done-badge" style="display:none;font-size:10px;color:var(--success)">✓ 已完成</span></div>
+      <div class="empty-hint" id="sp-empty">上传图片后点击「分析」</div>
+      <div class="prompt-text" id="sp-text" style="display:none"></div>
+      <span class="dim-toggle" id="sp-dim-toggle" style="display:none" onclick="toggleDim('sp')">▶ 查看维度清单</span>
+      <div class="dim-text" id="sp-dim"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Panel: 合并 ════ -->
+<div class="panel" id="panel-merge">
+  <div class="sec-card">
+    <div class="sec-title">⚡ 合并提示词</div>
+    <!-- 依赖状态 -->
+    <div id="merge-deps" style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <div class="dep-item" id="dep-c" style="font-size:11px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border)">
+        🖼 内容图 <span id="dep-c-st" style="color:var(--muted)">未就绪</span>
+      </div>
+      <div class="dep-item" id="dep-s" style="font-size:11px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border)">
+        🎨 风格图 <span id="dep-s-st" style="color:var(--muted)">未就绪</span>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:0;margin-bottom:12px;align-items:center">
+      <button class="btn btn-merge" id="btn-merge-go" onclick="mergePrompts()">⚡ 合并生成</button>
+      <button class="btn btn-secondary" onclick="clearAll()">🗑 清空全部</button>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+        Prompt 语言
+        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="prompt-lang" value="zh" checked onchange="setLang(this.value)"> 中文
+        </label>
+        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;color:var(--text)">
+          <input type="radio" name="prompt-lang" value="en" onchange="setLang(this.value)"> EN
+        </label>
+      </span>
+    </div>
+    <textarea id="merged-output" min-height="100px" style="min-height:110px" placeholder="先完成内容图和风格图分析，再点击「合并生成」…" readonly></textarea>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="copyMerged()">📋 复制提示词</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Panel: 执行鸿沟辅助 ════ -->
+<div class="panel" id="panel-reverse">
+  <div class="gulf-hint">
+    <strong>🌉 反向提词 · Gulf of Execution Bridge</strong>
+    当你心中有一个目标画面，但不知道如何用文字描述时——上传目标效果图，AI 自动生成可用于 SD/MJ/FLUX 的提示词，
+    帮你从「视觉意图」跨越到「生图指令」。
+  </div>
+  <div class="two-col">
+    <div>
+      <div class="drop-card" id="reverse-zone"
+           ondragover="onDragOver(event,'reverse')" ondragleave="onDragLeave('reverse')" ondrop="onDrop(event,'reverse')">
+        <input type="file" accept="image/*" onchange="onFileSelect(event,'reverse')" />
+        <div class="placeholder" id="reverse-placeholder">
+          <div class="icon">🎯</div>
+          <p>上传<strong>目标效果图</strong></p>
+          <p style="margin-top:4px;font-size:11px">你想要达到的视觉效果</p>
+        </div>
+        <img id="reverse-preview" style="display:none" />
+      </div>
+      <div style="margin-top:10px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">分析模式</label>
+        <div style="display:flex;gap:8px">
+          <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="radio" name="rev-mode" value="both" checked> 完整提示词（内容+风格）
+          </label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="radio" name="rev-mode" value="content"> 仅内容
+          </label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="radio" name="rev-mode" value="style"> 仅风格
+          </label>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-reverse" id="btn-reverse" onclick="doReverse()" disabled style="flex:1">
+          <span class="spinner" id="spin-reverse"></span> 生成提示词
+        </button>
+      </div>
+    </div>
+    <div>
+      <div class="sec-card" style="height:100%">
+        <div class="sec-title">🔍 反向提词结果 <span id="r-done-badge" style="display:none;font-size:10px;color:#fbbf24">✓ 已生成</span></div>
+        <div class="empty-hint" id="rp-empty">上传目标效果图后点击「生成提示词」</div>
+        <div id="rp-result" style="display:none">
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">📋 可直接使用的提示词</div>
+            <div class="prompt-text" id="rp-final"></div>
+          </div>
+          <div id="rp-both-section" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:#60a5fa;margin-bottom:4px">🖼 内容维度</div>
+            <div class="prompt-text" id="rp-content" style="font-size:12px;color:var(--muted)"></div>
+            <div style="font-size:10px;color:#c084fc;margin-bottom:4px;margin-top:10px">🎨 风格维度</div>
+            <div class="prompt-text" id="rp-style" style="font-size:12px;color:var(--muted)"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="copyReverse()">📋 复制</button>
+            <button class="btn btn-secondary" onclick="sendReverseToWorkflow()">→ 导入工作流</button>
+          </div>
+        </div>
+        <span class="dim-toggle" id="rp-dim-toggle" style="display:none" onclick="toggleDim('rp')">▶ 查看详细分析</span>
+        <div class="dim-text" id="rp-dim"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── state ──
+const state = {
+  clarify: '',
+  content: { file: null, prompt: '', dim: '' },
+  style:   { file: null, prompt: '', dim: '' },
+  reverse: { file: null },
+  lang: 'zh',
+};
+
+const NODE_INFO = {
+  clarify: { title: '意图梳理节点', body: '帮助用户将模糊的创作想法结构化，填写主题/风格/氛围/构图等维度后由 AI 整理成清晰描述。对应认知负荷理论中降低"内生性负荷"的前置支架。' },
+  content: { title: '内容解析节点', body: '调用 Gemini 对内容图进行结构化分析，提取 6 个维度（主体/场景/构图/视角/几何/细节），输出去掉颜色和风格词的纯内容 prompt。降低"主体描述"的认知负荷。' },
+  style:   { title: '风格解析节点', body: '调用 Gemini 对风格图进行美术分析，提取 7 个维度（媒介/调色/光影/笔触/氛围/标志元素/风格标签），输出纯风格 prompt，零具体物件名词。' },
+  merge:   { title: '提示词合并节点', body: '将内容 prompt 与风格 prompt 按标准模板合并，明确指示 AI "保留构图，只改风格"，消除歧义指令，是决策链的关键收敛节点。' },
+  reverse: { title: '反向提词节点', body: '当用户有目标效果图但不知如何描述时，由此节点反向生成提示词。直接对应 Norman 双鸿沟模型中的 Gulf of Execution——从意图到表达的跨越。' },
+};
+
+// ── init ──
+document.addEventListener('DOMContentLoaded', () => {
+  const s = localStorage.getItem('artnode_server') || 'http://localhost:8765';
+  document.getElementById('server-url').value = s;
+  const k = localStorage.getItem('artnode_key') || '';
+  document.getElementById('api-key-input').value = k;
+  updatePipeline();
+  updateMergeDeps();
+});
+
+function saveSettings() {
+  localStorage.setItem('artnode_server', document.getElementById('server-url').value.trim());
+  localStorage.setItem('artnode_key', document.getElementById('api-key-input').value.trim());
+  toast('✅ 设置已保存');
+}
+
+function getServer() {
+  return (document.getElementById('server-url').value.trim() || 'http://localhost:8765').replace(/\/$/, '');
+}
+
+function setLang(l) { state.lang = l; }
+
+// ── tabs ──
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const names = ['content', 'style', 'merge', 'reverse'];
+    t.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  highlightPipelineNode(name);
+  // 联动显示节点说明
+  const info = NODE_INFO[name];
+  if (info) {
+    document.getElementById('ni-title').textContent = info.title;
+    document.getElementById('ni-body').textContent = info.body;
+    document.getElementById('node-info').classList.add('show');
+  }
+}
+
+// ── pipeline ──
+function highlightPipelineNode(name) {
+  document.querySelectorAll('.pnode').forEach(n => {
+    if (!n.classList.contains('done')) n.classList.remove('active');
+  });
+  const el = document.getElementById('pn-' + name);
+  if (el && !el.classList.contains('done')) el.classList.add('active');
+}
+
+function updatePipeline() {
+  const clDone = !!state.clarify;
+  const cDone  = !!state.content.prompt;
+  const sDone  = !!state.style.prompt;
+  const mDone  = !!document.getElementById('merged-output').value;
+  setNodeState('pn-clarify', clDone ? 'done' : 'idle');
+  setNodeState('pn-content', cDone  ? 'done' : 'idle');
+  setNodeState('pn-style',   sDone  ? 'done' : 'idle');
+  if (cDone && sDone) setNodeState('pn-merge', mDone ? 'done' : 'idle');
+  document.getElementById('conn-0').className = 'pnode-connector' + (clDone ? ' lit-cl' : '');
+  document.getElementById('conn-1').className = 'pnode-connector' + (cDone  ? ' lit-c'  : '');
+  document.getElementById('conn-2').className = 'pnode-connector' + (sDone  ? ' lit-s'  : '');
+  document.getElementById('conn-3').className = 'pnode-connector' + (mDone  ? ' lit-m'  : '');
+}
+
+function setNodeState(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('idle', 'active', 'done');
+  el.classList.add(state);
+}
+
+// ── drag & drop ──
+function onDragOver(e, role) { e.preventDefault(); document.getElementById(role + '-zone').classList.add('dragover'); }
+function onDragLeave(role) { document.getElementById(role + '-zone').classList.remove('dragover'); }
+function onDrop(e, role) {
+  e.preventDefault();
+  document.getElementById(role + '-zone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) setImage(role, file);
+}
+function onFileSelect(e, role) {
+  const file = e.target.files[0];
+  if (file) setImage(role, file);
+}
+
+function setImage(role, file) {
+  state[role].file = file;
+  if (state[role].prompt !== undefined) { state[role].prompt = ''; state[role].dim = ''; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById(role + '-preview');
+    img.src = ev.target.result;
+    img.style.display = 'block';
+    document.getElementById(role + '-placeholder').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+  const btn = document.getElementById('btn-' + role);
+  if (btn) btn.disabled = false;
+  if (role !== 'reverse') {
+    const prefix = role === 'content' ? 'cp' : 'sp';
+    document.getElementById(prefix + '-empty').style.display = 'block';
+    document.getElementById(prefix + '-text').style.display = 'none';
+    document.getElementById(prefix + '-dim-toggle').style.display = 'none';
+    const badge = document.getElementById(role === 'content' ? 'c-done-badge' : 's-done-badge');
+    if (badge) badge.style.display = 'none';
+    updatePipeline();
+    updateMergeDeps();
+  }
+}
+
+// ── analyze ──
+async function analyze(role) {
+  const { file } = state[role];
+  if (!file) return;
+  const btn = document.getElementById('btn-' + role);
+  const spin = document.getElementById('spin-' + role);
+  btn.disabled = true; spin.classList.add('active');
+  const nodeId = role === 'content' ? 'pn-content' : 'pn-style';
+  setNodeState(nodeId, 'active');
+
+  try {
+    const fd = new FormData();
+    fd.append('image', file); fd.append('role', role); fd.append('lang', state.lang);
+    const resp = await fetch(getServer() + '/analyze', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || resp.statusText);
+    const data = await resp.json();
+
+    state[role].prompt = data.final_prompt || '';
+    state[role].dim    = data.dimension_text || '';
+
+    const prefix = role === 'content' ? 'cp' : 'sp';
+    document.getElementById(prefix + '-empty').style.display = 'none';
+    const textEl = document.getElementById(prefix + '-text');
+    textEl.textContent = data.final_prompt || '（未提取到 prompt）';
+    textEl.style.display = 'block';
+    document.getElementById(prefix + '-dim').textContent = state[role].dim;
+    document.getElementById(prefix + '-dim-toggle').style.display = 'inline-block';
+    const badge = document.getElementById(role === 'content' ? 'c-done-badge' : 's-done-badge');
+    if (badge) badge.style.display = 'inline';
+
+    setNodeState(nodeId, 'done');
+    updatePipeline();
+    updateMergeDeps();
+    toast('✅ ' + (role === 'content' ? '内容图' : '风格图') + '分析完成');
+  } catch(e) {
+    setNodeState(nodeId, 'idle');
+    toast('❌ 分析失败: ' + e.message, true);
+  } finally {
+    btn.disabled = false; spin.classList.remove('active');
+  }
+}
+
+function toggleDim(prefix) {
+  const el = document.getElementById(prefix + '-dim');
+  const tg = document.getElementById(prefix + '-dim-toggle');
+  el.classList.toggle('open');
+  tg.textContent = el.classList.contains('open') ? '▼ 收起' : '▶ 查看维度清单';
+}
+
+// ── merge deps ──
+function updateMergeDeps() {
+  const cOk = !!state.content.prompt;
+  const sOk = !!state.style.prompt;
+  const dc  = document.getElementById('dep-c-st');
+  const ds  = document.getElementById('dep-s-st');
+  if (dc) { dc.textContent = cOk ? '✅ 已就绪' : '未就绪'; dc.style.color = cOk ? 'var(--success)' : 'var(--muted)'; }
+  if (ds) { ds.textContent = sOk ? '✅ 已就绪' : '未就绪'; ds.style.color = sOk ? 'var(--success)' : 'var(--muted)'; }
+}
+
+// ── merge ──
+async function mergePrompts() {
+  const { content, style } = state;
+  if (!content.prompt || !style.prompt) { toast('❌ 请先完成两张图的分析', true); return; }
+  setNodeState('pn-merge', 'active');
+  try {
+    const fd = new FormData();
+    fd.append('content_prompt', content.prompt); fd.append('style_prompt', style.prompt); fd.append('lang', state.lang);
+    const resp = await fetch(getServer() + '/merge', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error();
+    const data = await resp.json();
+    const out = document.getElementById('merged-output');
+    out.value = data.merged_prompt;
+    out.removeAttribute('readonly');
+    setNodeState('pn-merge', 'done');
+    updatePipeline();
+    toast('✅ 合并完成');
+  } catch {
+    // 本地兜底
+    const m = state.lang === 'zh'
+      ? `${content.prompt.replace(/[。.]+$/, '')}，呈现为以下风格：${style.prompt.replace(/[。.]+$/, '')}。保留参考原图的构图、主体身份、相机角度与空间布局；仅应用参考风格图的美术风格、配色、光影与质感。`
+      : `${content.prompt.replace(/[.]+$/, '')}, rendered in the following style: ${style.prompt.replace(/[.]+$/, '')}. Preserve composition, subject, camera angle from content reference. Apply only art style, color, lighting from style reference.`;
+    const out = document.getElementById('merged-output');
+    out.value = m; out.removeAttribute('readonly');
+    setNodeState('pn-merge', 'done');
+    updatePipeline();
+    toast('✅ 本地合并完成');
+  }
+}
+
+function copyMerged() {
+  const v = document.getElementById('merged-output').value;
+  if (!v) { toast('❌ 没有内容', true); return; }
+  navigator.clipboard.writeText(v).then(() => toast('📋 已复制'));
+}
+
+function clearAll() {
+  ['content', 'style'].forEach(role => {
+    state[role] = { file: null, prompt: '', dim: '' };
+    const prefix = role === 'content' ? 'cp' : 'sp';
+    document.getElementById(role + '-preview').style.display = 'none';
+    document.getElementById(role + '-placeholder').style.display = 'flex';
+    document.getElementById('btn-' + role).disabled = true;
+    document.getElementById(prefix + '-empty').style.display = 'block';
+    document.getElementById(prefix + '-text').style.display = 'none';
+    document.getElementById(prefix + '-dim-toggle').style.display = 'none';
+    document.getElementById(prefix + '-dim').className = 'dim-text';
+    const badge = document.getElementById(role === 'content' ? 'c-done-badge' : 's-done-badge');
+    if (badge) badge.style.display = 'none';
+  });
+  document.getElementById('merged-output').value = '';
+  ['pn-clarify', 'pn-content', 'pn-style', 'pn-merge', 'pn-reverse'].forEach(id => setNodeState(id, 'idle'));
+  ['conn-0','conn-1','conn-2','conn-3'].forEach(id => { const el = document.getElementById(id); if(el) el.className='pnode-connector'; });
+  updateMergeDeps();
+  toast('已清空');
+}
+
+// ── clarify ──
+async function doClarify() {
+  const subject     = document.getElementById('cl-subject').value.trim();
+  const style       = document.getElementById('cl-style').value;
+  const mood        = document.getElementById('cl-mood').value.trim();
+  const composition = document.getElementById('cl-composition').value;
+  const lighting    = document.getElementById('cl-lighting').value.trim();
+  const negative    = document.getElementById('cl-negative').value.trim();
+  const extra       = document.getElementById('cl-extra').value.trim();
+
+  if (!subject) { toast('❌ 请至少填写「画面主题」', true); return; }
+
+  const btn  = document.getElementById('btn-clarify');
+  const spin = document.getElementById('spin-clarify');
+  btn.disabled = true; spin.classList.add('active');
+  setNodeState('pn-clarify', 'active');
+
+  const fd = new FormData();
+  fd.append('subject',     subject);
+  fd.append('style',       style);
+  fd.append('mood',        mood);
+  fd.append('composition', composition);
+  fd.append('lighting',    lighting);
+  fd.append('negative',    negative);
+  fd.append('extra',       extra);
+  fd.append('lang',        state.lang);
+
+  try {
+    const resp = await fetch(getServer() + '/clarify', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error((await resp.json().catch(()=>({}))).detail || resp.statusText);
+    const data = await resp.json();
+    state.clarify = data.result;
+    document.getElementById('cl-result-text').textContent = data.result;
+    document.getElementById('cl-result-card').style.display = 'block';
+    setNodeState('pn-clarify', 'done');
+    updatePipeline();
+    toast('✅ 意图整理完成');
+  } catch(e) {
+    setNodeState('pn-clarify', 'idle');
+    toast('❌ 失败: ' + e.message, true);
+  } finally {
+    btn.disabled = false; spin.classList.remove('active');
+  }
+}
+
+function clearClarify() {
+  ['cl-subject','cl-mood','cl-lighting','cl-negative','cl-extra'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('cl-style').value = '';
+  document.getElementById('cl-composition').value = '';
+  document.getElementById('cl-result-card').style.display = 'none';
+  state.clarify = '';
+  setNodeState('pn-clarify', 'idle');
+  updatePipeline();
+}
+
+function copyClarify() {
+  const v = document.getElementById('cl-result-text').textContent;
+  if (v) navigator.clipboard.writeText(v).then(() => toast('📋 已复制'));
+}
+
+function useClarifyAsPrompt() {
+  const v = document.getElementById('cl-result-text').textContent;
+  if (!v) return;
+  state.content.prompt = v;
+  document.getElementById('cp-text').textContent = v;
+  document.getElementById('cp-text').style.display = 'block';
+  document.getElementById('cp-empty').style.display = 'none';
+  document.getElementById('c-done-badge').style.display = 'inline';
+  setNodeState('pn-content', 'done');
+  updatePipeline(); updateMergeDeps();
+  switchTab('content');
+  toast('✅ 已导入为内容提示词，可继续上传风格图');
+}
+
+// ── reverse ──
+async function doReverse() {
+  const file = state.reverse.file;
+  if (!file) return;
+  const btn = document.getElementById('btn-reverse');
+  const spin = document.getElementById('spin-reverse');
+  btn.disabled = true; spin.classList.add('active');
+  setNodeState('pn-reverse', 'active');
+
+  const mode = document.querySelector('input[name="rev-mode"]:checked').value;
+
+  try {
+    let contentPrompt = '', stylePrompt = '', finalPrompt = '', dimText = '';
+
+    if (mode === 'both' || mode === 'content') {
+      const fdC = new FormData();
+      fdC.append('image', file); fdC.append('role', 'content'); fdC.append('lang', state.lang);
+      const rC = await fetch(getServer() + '/analyze', { method: 'POST', body: fdC });
+      if (!rC.ok) throw new Error((await rC.json().catch(()=>({}))).detail || rC.statusText);
+      const dC = await rC.json();
+      contentPrompt = dC.final_prompt || '';
+      dimText += dC.dimension_text || '';
+    }
+
+    if (mode === 'both' || mode === 'style') {
+      const fdS = new FormData();
+      fdS.append('image', file); fdS.append('role', 'style'); fdS.append('lang', state.lang);
+      const rS = await fetch(getServer() + '/analyze', { method: 'POST', body: fdS });
+      if (!rS.ok) throw new Error((await rS.json().catch(()=>({}))).detail || rS.statusText);
+      const dS = await rS.json();
+      stylePrompt = dS.final_prompt || '';
+      dimText += '\n\n' + (dS.dimension_text || '');
+    }
+
+    if (mode === 'both' && contentPrompt && stylePrompt) {
+      const fd = new FormData();
+      fd.append('content_prompt', contentPrompt); fd.append('style_prompt', stylePrompt); fd.append('lang', state.lang);
+      const rM = await fetch(getServer() + '/merge', { method: 'POST', body: fd });
+      if (rM.ok) { finalPrompt = (await rM.json()).merged_prompt; }
+      else { finalPrompt = contentPrompt + '，风格：' + stylePrompt; }
+    } else {
+      finalPrompt = contentPrompt || stylePrompt;
+    }
+
+    // 展示
+    document.getElementById('rp-empty').style.display = 'none';
+    document.getElementById('rp-result').style.display = 'block';
+    document.getElementById('rp-final').textContent = finalPrompt;
+    if (mode === 'both') {
+      document.getElementById('rp-both-section').style.display = 'block';
+      document.getElementById('rp-content').textContent = contentPrompt;
+      document.getElementById('rp-style').textContent = stylePrompt;
+    } else {
+      document.getElementById('rp-both-section').style.display = 'none';
+    }
+    document.getElementById('rp-dim').textContent = dimText.trim();
+    document.getElementById('rp-dim-toggle').style.display = 'inline-block';
+    document.getElementById('r-done-badge').style.display = 'inline';
+    state._reverseResult = { finalPrompt, contentPrompt, stylePrompt };
+
+    setNodeState('pn-reverse', 'done');
+    toast('✅ 反向提示词生成完成');
+  } catch(e) {
+    setNodeState('pn-reverse', 'idle');
+    toast('❌ 生成失败: ' + e.message, true);
+  } finally {
+    btn.disabled = false; spin.classList.remove('active');
+  }
+}
+
+function copyReverse() {
+  const v = document.getElementById('rp-final').textContent;
+  if (!v) return;
+  navigator.clipboard.writeText(v).then(() => toast('📋 已复制'));
+}
+
+function sendReverseToWorkflow() {
+  const r = state._reverseResult;
+  if (!r) return;
+  if (r.contentPrompt) { state.content.prompt = r.contentPrompt; document.getElementById('cp-text').textContent = r.contentPrompt; document.getElementById('cp-text').style.display='block'; document.getElementById('cp-empty').style.display='none'; document.getElementById('c-done-badge').style.display='inline'; }
+  if (r.stylePrompt)   { state.style.prompt   = r.stylePrompt;   document.getElementById('sp-text').textContent = r.stylePrompt;   document.getElementById('sp-text').style.display='block'; document.getElementById('sp-empty').style.display='none'; document.getElementById('s-done-badge').style.display='inline'; }
+  updatePipeline(); updateMergeDeps();
+  toast('✅ 已导入工作流，可切换到「提示词合并」继续');
+}
+
+// ── toast ──
+let _tt;
+function toast(msg, isErr = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = isErr ? 'var(--err)' : 'var(--border)';
+  el.classList.add('show');
+  clearTimeout(_tt);
+  _tt = setTimeout(() => el.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>
