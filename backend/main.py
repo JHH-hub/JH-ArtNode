@@ -101,52 +101,60 @@ def health():
 
 @app.post("/clarify")
 async def clarify(
-    subject:     str = Form(...),
-    style:       str = Form(""),
-    mood:        str = Form(""),
-    composition: str = Form(""),
-    lighting:    str = Form(""),
-    negative:    str = Form(""),
-    extra:       str = Form(""),
+    subject:       str = Form(...),
+    static_clues:  str = Form(""),
+    dynamic_clues: str = Form(""),
+    safe_zone:     str = Form("9:16_15_85"),
+    style:         str = Form(""),
+    mood:          str = Form(""),
+    composition:   str = Form(""),
+    lighting:      str = Form(""),
+    negative:      str = Form(""),
+    extra:         str = Form(""),
     lang: Literal["zh", "en"] = Form("zh"),
 ):
     """
-    Intent clarification: AI organizes the user's structured creative intent
-    into a clear image description.
+    Intent clarification & Anomaly Triage (节点1：意图梳理与茬点取舍分流):
+    Organizes the planner's rough script and anomaly list into:
+    1) Static base-image clues (generated directly with environment),
+    2) Dynamic Spine / local-inpainting clues (reserved as clean physical & lighting anchors
+       or isolated silhouettes inside the 9:16 UI safe zone Y in [15%, 85%]).
     """
     client = _get_client()
     model_name = os.getenv("ANALYZE_MODEL", "gemini-2.5-flash")
 
     fields = []
-    fields.append("Subject: " + subject)
-    if style:       fields.append("Style: " + style)
-    if mood:        fields.append("Mood: " + mood)
-    if composition: fields.append("Composition: " + composition)
-    if lighting:    fields.append("Lighting: " + lighting)
-    if negative:    fields.append("Exclude: " + negative)
-    if extra:       fields.append("Extra: " + extra)
+    fields.append("Subject / Scene Overview: " + subject)
+    if static_clues:  fields.append("Static Base-Map Clues (direct generation): " + static_clues)
+    if dynamic_clues: fields.append("Dynamic Spine / Post-Inpaint Clues (reserve clean anchors or isolated silhouettes): " + dynamic_clues)
+    if safe_zone:     fields.append("UI Safe-Zone Constraint: " + safe_zone)
+    if style:         fields.append("Style: " + style)
+    if mood:          fields.append("Mood: " + mood)
+    if composition:   fields.append("Composition: " + composition)
+    if lighting:      fields.append("Lighting: " + lighting)
+    if negative:      fields.append("Exclude: " + negative)
+    if extra:         fields.append("Extra: " + extra)
 
     user_input = "\n".join(fields)
 
     if lang == "zh":
         system = (
-            "You are a professional AI art prompt consultant. "
-            "The user provides creative intent in Chinese keywords. "
-            "Reorganize into a fluent, clear Chinese scene description:\n"
-            "1. Natural Chinese prose, under 150 characters\n"
-            "2. Keep core intent, add reasonable details\n"
-            "3. Structure: subject -> environment -> style/mood\n"
-            "4. Output the description only, no extra explanations"
+            "你是资深小游戏美术AIGC工作流提示词架构师（节点1：意图梳理与茬点取舍分流）。\n"
+            "请将用户提供的场景需求与茬点列表重组为结构化生图提示词：\n"
+            "1. 严格执行移动端竖版9:16安全区约束：顶部12%与底部12%为UI遮挡死区，所有核心道具与锚点必须100%分布在纵向15%至85%的安全区内。\n"
+            "2. 茬点取舍分流：\n"
+            "   - 【底图直出静态茬点】：写入核心主体群落，采用非对称错落布局，明确前中后景坐标区间；\n"
+            "   - 【后期局部重绘/需拆解Spine动态层的茬点】：若用户填写了此项，必须在对应坐标处明确预留干净的物理承载面与受光反射锚点（或保持主体轮廓与后方复杂背景完全分离、不穿模粘连），便于后期无损拆出独立透明图层。\n"
+            "3. 严禁将道具名称（如“黄符”“符纸”）直接作为汉字印在物体表面；牌匾文字需明确悬挂位置或预留空白牌匾框。\n"
+            "4. 直接输出结构化中文提示词正文，不要输出多余寒暄。"
         )
     else:
         system = (
-            "You are a professional AI art prompt consultant. "
-            "The user provides creative intent keywords. "
-            "Organize into a clear English scene description:\n"
-            "1. Natural English prose, under 80 words\n"
-            "2. Keep core intent, add reasonable details\n"
-            "3. Structure: subject -> environment -> style/mood\n"
-            "4. Output description only, no explanations"
+            "You are a senior mini-game AIGC prompt architect (Node 1: Intent Clarification & Anomaly Triage).\n"
+            "Reorganize the user's scene brief and clue list into a structured generation prompt:\n"
+            "1. Enforce 9:16 mobile UI safe zone: keep all key clues and anchors strictly within vertical 15% to 85% (avoid top/bottom 12% dead zones).\n"
+            "2. Anomaly Triage: place static clues in asymmetric depth layers; for dynamic Spine / post-inpaint clues, reserve clean physical & lighting anchors or maintain isolated silhouettes without background tangling.\n"
+            "3. Output the structured prompt only, no extra commentary."
         )
 
     try:

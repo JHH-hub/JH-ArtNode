@@ -292,20 +292,38 @@
 <div class="panel active" id="panel-clarify">
   <div class="two-col">
     <div class="sec-card full-col" style="margin-bottom:14px">
-      <div class="sec-title">💬 意图梳理
+      <div class="sec-title">💬 意图梳理与茬点分流
         <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">
-          · 填写你的创作意图，AI 帮你整理成结构化描述
+          · 填写关卡场景与茬点清单，AI 按「底图直出静态茬点 vs 后期局部重绘/Spine动态拆层锚点」重组 9:16 安全区结构化描述
         </span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
-          <label class="field-label">🎯 画面主题 / 想画什么</label>
-          <input class="field-input" id="cl-subject" placeholder="例：一个赛博朋克风格的女孩站在雨中" />
+          <label class="field-label">🎯 画面主题 / 关卡场景概述</label>
+          <input class="field-input" id="cl-subject" placeholder="例：黄昏荒村古庙前院，戏班正在搭建古戏台" />
+        </div>
+        <div>
+          <label class="field-label">📱 移动端安全区约束</label>
+          <select class="field-input" id="cl-safe-zone">
+            <option value="竖版9:16移动端安全区（纵向15%至85%，规避顶底12% UI死区）">竖版 9:16 安全区（纵向 15%~85%，规避顶底 12% 死区）</option>
+            <option value="横版16:9安全区（四周预留10% UI边距）">横版 16:9 安全区（四周预留 10% UI 边距）</option>
+            <option value="">不限制安全区</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">📌 底图直出静态茬点（随大场景一次生成）</label>
+          <input class="field-input" id="cl-static-clues" placeholder="例：左中红木戏台、右中古庙山门与铜锣大鼓、左下渗水黑木箱与花脸偶" />
+        </div>
+        <div>
+          <label class="field-label">🎬 后期重绘 / Spine动态拆层茬点（底图预留物理与受光锚点）</label>
+          <input class="field-input" id="cl-dynamic-clues" placeholder="例：右上枯枝预留7挂偶净空、右下矮木箱预留画脸老班主坐席" />
         </div>
         <div>
           <label class="field-label">🎨 风格偏好</label>
           <select class="field-input" id="cl-style">
             <option value="">不确定 / 让 AI 建议</option>
+            <option value="folk-suspense">中式民俗悬疑写实数字绘景+精细厚涂</option>
+            <option value="3d-cg">高精度 3D 影视级写实古风悬疑 CG</option>
             <option value="anime">动漫 / 二次元</option>
             <option value="realistic">写实 / 摄影感</option>
             <option value="pixel">像素风</option>
@@ -318,12 +336,13 @@
         </div>
         <div>
           <label class="field-label">🌈 画面氛围 / 情绪</label>
-          <input class="field-input" id="cl-mood" placeholder="例：阴郁、温暖、神秘、活泼…" />
+          <input class="field-input" id="cl-mood" placeholder="例：阴郁、温暖、神秘、诡异苍凉…" />
         </div>
         <div>
           <label class="field-label">📐 构图 / 视角</label>
           <select class="field-input" id="cl-composition">
             <option value="">不指定</option>
+            <option value="9:16 medium-long depth shot, slight high-angle perspective">竖版9:16中远景纵深微俯视（非对称错落）</option>
             <option value="close-up">特写</option>
             <option value="half body">半身</option>
             <option value="full body">全身</option>
@@ -334,11 +353,11 @@
         </div>
         <div>
           <label class="field-label">💡 光线 / 时间</label>
-          <input class="field-input" id="cl-lighting" placeholder="例：黄昏逆光、霓虹灯、正午阳光…" />
+          <input class="field-input" id="cl-lighting" placeholder="例：室内煤油灯暖光点光源 + 破顶冷月光双色温对比…" />
         </div>
-        <div>
-          <label class="field-label">🚫 不想要的元素</label>
-          <input class="field-input" id="cl-negative" placeholder="例：不要文字、不要多余的人…" />
+        <div style="grid-column:1/-1">
+          <label class="field-label">🚫 不想要的元素（防穿模 / 防乱码汉字）</label>
+          <input class="field-input" id="cl-negative" placeholder="例：严禁将道具名直接印成汉字（如黄符）、严禁动态主体与背景瓦片穿模粘连…" />
         </div>
         <div style="grid-column:1/-1">
           <label class="field-label">📝 补充说明（可选）</label>
@@ -770,13 +789,16 @@ function clearAll() {
 
 // ── clarify ──
 async function doClarify() {
-  const subject     = document.getElementById('cl-subject').value.trim();
-  const style       = document.getElementById('cl-style').value;
-  const mood        = document.getElementById('cl-mood').value.trim();
-  const composition = document.getElementById('cl-composition').value;
-  const lighting    = document.getElementById('cl-lighting').value.trim();
-  const negative    = document.getElementById('cl-negative').value.trim();
-  const extra       = document.getElementById('cl-extra').value.trim();
+  const subject       = document.getElementById('cl-subject').value.trim();
+  const static_clues  = document.getElementById('cl-static-clues').value.trim();
+  const dynamic_clues = document.getElementById('cl-dynamic-clues').value.trim();
+  const safe_zone     = document.getElementById('cl-safe-zone').value;
+  const style         = document.getElementById('cl-style').value;
+  const mood          = document.getElementById('cl-mood').value.trim();
+  const composition   = document.getElementById('cl-composition').value;
+  const lighting      = document.getElementById('cl-lighting').value.trim();
+  const negative      = document.getElementById('cl-negative').value.trim();
+  const extra         = document.getElementById('cl-extra').value.trim();
 
   if (!subject) { toast('❌ 请至少填写「画面主题」', true); return; }
 
@@ -786,14 +808,17 @@ async function doClarify() {
   setNodeState('pn-clarify', 'active');
 
   const fd = new FormData();
-  fd.append('subject',     subject);
-  fd.append('style',       style);
-  fd.append('mood',        mood);
-  fd.append('composition', composition);
-  fd.append('lighting',    lighting);
-  fd.append('negative',    negative);
-  fd.append('extra',       extra);
-  fd.append('lang',        state.lang);
+  fd.append('subject',       subject);
+  fd.append('static_clues',  static_clues);
+  fd.append('dynamic_clues', dynamic_clues);
+  fd.append('safe_zone',     safe_zone);
+  fd.append('style',         style);
+  fd.append('mood',          mood);
+  fd.append('composition',   composition);
+  fd.append('lighting',      lighting);
+  fd.append('negative',      negative);
+  fd.append('extra',         extra);
+  fd.append('lang',          state.lang);
 
   try {
     const resp = await fetch(getServer() + '/clarify', { method: 'POST', body: fd });
@@ -814,7 +839,7 @@ async function doClarify() {
 }
 
 function clearClarify() {
-  ['cl-subject','cl-mood','cl-lighting','cl-negative','cl-extra'].forEach(id => document.getElementById(id).value = '');
+  ['cl-subject','cl-static-clues','cl-dynamic-clues','cl-mood','cl-lighting','cl-negative','cl-extra'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('cl-style').value = '';
   document.getElementById('cl-composition').value = '';
   document.getElementById('cl-result-card').style.display = 'none';
